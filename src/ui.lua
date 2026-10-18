@@ -22,16 +22,17 @@ end
 function UI.new()
     local self = setmetatable({}, UI)
     self.cfg = nil
+    -- FIXED: Delta executor requires Size to be passed immediately
     self.root = newDraw("Square", { Filled = true, Color = BG, Size = Vector2.new(460, 320),
-        Position = Vector2.new(120, 120), Visible = false, ZIndex = 100 })
+        Position = Vector2.new(120, 120), Visible = true, ZIndex = 100 })
     self.title = newDraw("Text", { Text = "brokencum", Color = ACCENT, Size = 18,
-        Font = Drawing.Fonts.Bold, Position = Vector2.new(134, 128), Visible = false, ZIndex = 101 })
+        Font = Drawing.Fonts.Bold, Position = Vector2.new(134, 128), Visible = true, ZIndex = 101 })
     self.tabs = {}
     self.tabButtons = {}
     self.activeTab = nil
     self.dragging = false
     self.elements = {}
-    self.visible = false
+    self.visible = true -- FIXED: Opens by default
     return self
 end
 
@@ -130,6 +131,7 @@ end
 
 function UI:AddToggle(tab, label, path)
     local pos = self:_place()
+    -- FIXED: Size passed immediately
     local box = newDraw("Square", { Filled = true, Color = BG2, Size = Vector2.new(16, 16),
         Position = pos, Visible = self.visible, ZIndex = 102 })
     local txt = newDraw("Text", { Text = label, Color = TEXT, Size = 14, Font = Drawing.Fonts.Regular,
@@ -163,6 +165,7 @@ function UI:AddSlider(tab, label, path, min, max, def)
     local txt = newDraw("Text", { Text = label .. ": " .. tostring(self.cfg:Get(path) or def),
         Color = TEXT, Size = 14, Font = Drawing.Fonts.Regular,
         Position = pos, Visible = self.visible, ZIndex = 102 })
+    -- FIXED: Size passed immediately
     local bar = newDraw("Square", { Filled = true, Color = BG2, Size = Vector2.new(180, 4),
         Position = pos + Vector2.new(0, 20), Visible = self.visible, ZIndex = 102 })
     local fill = newDraw("Square", { Filled = true, Color = ACCENT, Size = Vector2.new(0, 4),
