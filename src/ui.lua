@@ -1,8 +1,9 @@
 -- ============================================================
 -- BrokenCum
 -- SRC/ui.lua
--- self-contained Drawing menu: tabs, toggles, sliders, inputs
+-- Native Roblox GUI (crash-proof on Delta)
 -- ============================================================
+local CoreGui = game:GetService("CoreGui")
 local UserInputService = game:GetService("UserInputService")
 
 local UI = {}
@@ -13,199 +14,178 @@ local BG     = Color3.fromRGB(22, 22, 28)
 local BG2    = Color3.fromRGB(32, 32, 40)
 local TEXT   = Color3.fromRGB(235, 235, 240)
 
-local function newDraw(class, props)
-    local d = Drawing.new(class)
-    for k, v in pairs(props or {}) do d[k] = v end
-    return d
+local function create(class, props, parent)
+    local inst = Instance.new(class)
+    for k, v in pairs(props or {}) do inst[k] = v end
+    inst.Parent = parent
+    return inst
 end
 
 function UI.new()
     local self = setmetatable({}, UI)
     self.cfg = nil
-    -- FIXED: Delta executor requires Size to be passed immediately
-    self.root = newDraw("Square", { Filled = true, Color = BG, Size = Vector2.new(460, 320),
-        Position = Vector2.new(120, 120), Visible = true, ZIndex = 100 })
-    self.title = newDraw("Text", { Text = "brokencum", Color = ACCENT, Size = 18,
-        Font = Drawing.Fonts.Bold, Position = Vector2.new(134, 128), Visible = true, ZIndex = 101 })
     self.tabs = {}
-    self.tabButtons = {}
     self.activeTab = nil
-    self.dragging = false
-    self.elements = {}
-    self.visible = true -- FIXED: Opens by default
-    return self
-end
+    self.visible = true
 
-function UI:Init(cfg)
-    self.cfg = cfg
-    self:_bindDrag()
+    -- attempt CoreGui, fallback to PlayerGui
+    local ok, gui = pcall(function()
+        local g = Instance.new("ScreenGui")
+        g.Name = "BrokenCumUI"
+        g.ResetOnSpawn = false
+        g.Parent = CoreGui
+        return g
+    end)
+    if not ok then
+        gui = create("ScreenGui", { Name = "BrokenCumUI", ResetOnSpawn = false }, game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui"))
+    end
+    self.gui = gui
+
+    self.main = create("Frame", {
+        Size = UDim2.new(0, 460, 0, 320),
+        Position = UDim2.new(0, 120, 0, 120),
+        BackgroundColor3 = BG,
+        BorderSizePixel = 0,
+        Visible = self.visible,
+        Active = true
+    }, self.gui)
+    create("UICorner", { CornerRadius = UDim.new(0, 6) }, self.main)
+
+    -- title / drag bar
+    local topBar = create("Frame", {
+        Size = UDim2.new(1, 0, 0, 30),
+        BackgroundColor3 = BG2,
+        BorderSizePixel = 0,
+    }, self.main)
+    create("UICorner", { CornerRadius = UDim.new(0, 6) }, topBar)
+    create("TextLabel", {
+        Text = "brokencum", TextColor3 = ACCENT,
+        BackgroundTransparency = 1, Font = Enum.Font.GothamBold, TextSize = 16,
+        Position = UDim2.new(0, 10, 0, 0), Size = UDim2.new(1, -10, 1, 0),
+        TextXAlignment = Enum.TextXAlignment.Left
+    }, topBar)
+
+    -- drag logic
+    local dragging, dragInput, dragStart, startPos
+    topBar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = self.main.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then dragging = false end
+            end)
+        end
+    end)
+    topBar.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then dragInput = input end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - dragStart
+            self.main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        end
+    end)
+
+    -- tab container
+    self.tabContainer = create("Frame", {
+        Size = UDim2.new(1, 0, 0, 30),
+        Position = UDim2.new(0, 0, 0, 30),
+        BackgroundTransparency = 1,
+    }, self.main)
+
+    -- content container
+    self.contentContainer = create("ScrollingFrame", {
+        Size = UDim2.new(1, -20, 1, -70),
+        Position = UDim2.new(0, 10, 0, 65),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        ScrollBarThickness = 4,
+        ScrollBarImageColor3 = ACCENT,
+    }, self.main)
+
+    self:AddTab("Combat")
+    self:AddTab("Visuals")
+    self:AddTab("Movement")
+
     UserInputService.InputBegan:Connect(function(input, gp)
         if gp then return end
         if input.KeyCode == Enum.KeyCode.RightShift then
             self:Toggle()
         end
     end)
+    return self
 end
 
-function UI:_bindDrag()
-    UserInputService.InputBegan:Connect(function(input, gp)
-        if gp then return end
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            local m = UserInputService:GetMouseLocation()
-            local p = self.root.Position
-            if self.visible and m.X >= p.X and m.X <= p.X + self.root.Size.X
-                and m.Y >= p.Y and m.Y <= p.Y + 28 then
-                self.dragging = true
-                self._dragOffset = Vector2.new(m.X - p.X, m.Y - p.Y)
-            end
-        end
-    end)
-    UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then self.dragging = false end
-    end)
-    game:GetService("RunService").RenderStepped:Connect(function()
-        if self.dragging then
-            local m = UserInputService:GetMouseLocation()
-            local np = Vector2.new(m.X - self._dragOffset.X, m.Y - self._dragOffset.Y)
-            self:_moveTo(np)
-        end
-    end)
-end
-
-function UI:_moveTo(pos)
-    local delta = pos - self.root.Position
-    self.root.Position = pos
-    self.title.Position = self.title.Position + delta
-    for _, el in ipairs(self.elements) do
-        if el.objs then
-            for _, o in ipairs(el.objs) do o.Position = o.Position + delta end
-        end
-    end
+function UI:Init(cfg)
+    self.cfg = cfg
 end
 
 function UI:Toggle()
     self.visible = not self.visible
-    self.root.Visible = self.visible
-    self.title.Visible = self.visible
-    for _, el in ipairs(self.elements) do self:_setElVisible(el, self.visible and el.tab == self.activeTab) end
-    for _, tb in ipairs(self.tabButtons) do tb.Visible = self.visible end
-end
-
-function UI:_setElVisible(el, vis)
-    if el.objs then for _, o in ipairs(el.objs) do o.Visible = vis end end
+    self.main.Visible = self.visible
 end
 
 function UI:AddTab(name)
-    local x = 134 + (#self.tabs * 90)
-    local btn = newDraw("Text", { Text = name, Color = TEXT, Size = 14, Font = Drawing.Fonts.Bold,
-        Position = Vector2.new(x, 156), Visible = self.visible, ZIndex = 102 })
-    table.insert(self.tabButtons, btn)
-    self.tabs[name] = {}
+    local btn = create("TextButton", {
+        Text = name, TextColor3 = TEXT, BackgroundTransparency = 1,
+        Font = Enum.Font.GothamBold, TextSize = 14,
+        Size = UDim2.new(0, 80, 1, 0),
+        Position = UDim2.new(0, #self.tabs * 80, 0, 0),
+    }, self.tabContainer)
+    
+    local page = create("Frame", {
+        Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
+        BackgroundTransparency = 1, Visible = (#self.tabs == 0)
+    }, self.contentContainer)
+    
+    self.tabs[name] = page
     if not self.activeTab then self.activeTab = name end
 
-    local self_ = self
-    UserInputService.InputBegan:Connect(function(input, gp)
-        if gp or not self_.visible then return end
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            local m = UserInputService:GetMouseLocation()
-            local p = btn.Position
-            if m.X >= p.X and m.X <= p.X + 80 and m.Y >= p.Y and m.Y <= p.Y + 20 then
-                self_:SwitchTab(name)
-            end
-        end
+    btn.MouseButton1Click:Connect(function()
+        for _, p in pairs(self.tabs) do p.Visible = false end
+        page.Visible = true
+        self.activeTab = name
     end)
 end
 
-function UI:SwitchTab(name)
-    self.activeTab = name
-    for tabName, els in pairs(self.tabs) do
-        for _, el in ipairs(els) do self:_setElVisible(el, self.visible and tabName == name) end
-    end
-end
-
-function UI:_place()
-    local tab = self.tabs[self.activeTab]
-    local y = 186 + (#tab * 30)
-    return Vector2.new(138, y)
-end
-
 function UI:AddToggle(tab, label, path)
-    local pos = self:_place()
-    -- FIXED: Size passed immediately
-    local box = newDraw("Square", { Filled = true, Color = BG2, Size = Vector2.new(16, 16),
-        Position = pos, Visible = self.visible, ZIndex = 102 })
-    local txt = newDraw("Text", { Text = label, Color = TEXT, Size = 14, Font = Drawing.Fonts.Regular,
-        Position = pos + Vector2.new(24, 0), Visible = self.visible, ZIndex = 102 })
-    local el = { tab = tab, objs = { box, txt }, path = path }
+    local page = self.tabs[tab]
+    local item = create("Frame", { Size = UDim2.new(1, 0, 0, 30), BackgroundTransparency = 1 }, page)
+    local btn = create("TextButton", {
+        Text = label, TextColor3 = TEXT, BackgroundColor3 = BG2,
+        Font = Enum.Font.Gotham, TextSize = 14, TextXAlignment = Enum.TextXAlignment.Left,
+        Size = UDim2.new(1, 0, 1, 0), AutoButtonColor = false,
+    }, item)
+    create("UICorner", { CornerRadius = UDim.new(0, 4) }, btn)
+    create("UIPadding", { PaddingLeft = UDim.new(0, 10) }, btn)
 
     local function refresh(v)
-        box.Color = v and ACCENT or BG2
+        btn.TextColor3 = v and ACCENT or TEXT
     end
     refresh(self.cfg:Get(path))
     self.cfg:On(path, refresh)
 
-    local self_ = self
-    UserInputService.InputBegan:Connect(function(input, gp)
-        if gp or not self_.visible or self_.activeTab ~= tab then return end
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            local m = UserInputService:GetMouseLocation()
-            if m.X >= pos.X and m.X <= pos.X + 200 and m.Y >= pos.Y and m.Y <= pos.Y + 16 then
-                self_.cfg:Set(path, not self_.cfg:Get(path))
-            end
-        end
+    btn.MouseButton1Click:Connect(function()
+        self.cfg:Set(path, not self.cfg:Get(path))
     end)
-
-    table.insert(self.tabs[tab], el)
-    table.insert(self.elements, el)
-    return el
 end
 
-function UI:AddSlider(tab, label, path, min, max, def)
-    local pos = self:_place()
-    local txt = newDraw("Text", { Text = label .. ": " .. tostring(self.cfg:Get(path) or def),
-        Color = TEXT, Size = 14, Font = Drawing.Fonts.Regular,
-        Position = pos, Visible = self.visible, ZIndex = 102 })
-    -- FIXED: Size passed immediately
-    local bar = newDraw("Square", { Filled = true, Color = BG2, Size = Vector2.new(180, 4),
-        Position = pos + Vector2.new(0, 20), Visible = self.visible, ZIndex = 102 })
-    local fill = newDraw("Square", { Filled = true, Color = ACCENT, Size = Vector2.new(0, 4),
-        Position = pos + Vector2.new(0, 20), Visible = self.visible, ZIndex = 103 })
-    local el = { tab = tab, objs = { txt, bar, fill }, path = path }
-
-    local function refresh(v)
-        txt.Text = label .. ": " .. string.format("%.0f", v)
-        local pct = math.clamp((v - min) / (max - min), 0, 1)
-        fill.Size = Vector2.new(180 * pct, 4)
-    end
-    refresh(self.cfg:Get(path) or def)
-    self.cfg:On(path, refresh)
-
-    local self_ = self
-    local holding = false
-    UserInputService.InputBegan:Connect(function(input, gp)
-        if gp or not self_.visible or self_.activeTab ~= tab then return end
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            local m = UserInputService:GetMouseLocation()
-            if m.X >= bar.Position.X and m.X <= bar.Position.X + 180
-                and m.Y >= bar.Position.Y - 8 and m.Y <= bar.Position.Y + 12 then
-                holding = true
-            end
-        end
+function UI:AddInput(tab, label, path, placeholder)
+    local page = self.tabs[tab]
+    local item = create("Frame", { Size = UDim2.new(1, 0, 0, 30), BackgroundTransparency = 1 }, page)
+    create("TextLabel", { Text = label, TextColor3 = TEXT, BackgroundTransparency = 1, Font = Enum.Font.Gotham, TextSize = 14, Size = UDim2.new(0.5, 0, 1, 0), TextXAlignment = Enum.TextXAlignment.Left }, item)
+    
+    local box = create("TextBox", {
+        Text = "", PlaceholderText = placeholder or label, TextColor3 = ACCENT, PlaceholderColor3 = BG2,
+        BackgroundColor3 = BG2, Font = Enum.Font.Gotham, TextSize = 14,
+        Position = UDim2.new(0.5, 0, 0, 0), Size = UDim2.new(0.5, 0, 1, 0), ClearTextOnFocus = false
+    }, item)
+    create("UICorner", { CornerRadius = UDim.new(0, 4) }, box)
+    
+    box.FocusLost:Connect(function()
+        self.cfg:Set(path, box.Text)
     end)
-    UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then holding = false end
-    end)
-    game:GetService("RunService").RenderStepped:Connect(function()
-        if holding then
-            local m = UserInputService:GetMouseLocation()
-            local pct = math.clamp((m.X - bar.Position.X) / 180, 0, 1)
-            self_.cfg:Set(path, min + (max - min) * pct)
-        end
-    end)
-
-    table.insert(self.tabs[tab], el)
-    table.insert(self.elements, el)
-    return el
 end
 
 return UI.new()
